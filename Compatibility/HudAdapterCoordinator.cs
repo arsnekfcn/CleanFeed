@@ -252,7 +252,8 @@ namespace CleanFeed.Compatibility
                + "; " + GameCorePdaGate.StatusLine()
                + "; backing-walk=tagged:" + Interlocked.Read(ref _backingTagged)
                + ", barren:" + Interlocked.Read(ref _barrenWalks)
-               + ", buildinfo-bg-tagged:" + Interlocked.Read(ref _buildInfoBackgroundsTagged);
+               + ", buildinfo-bg-tagged:" + Interlocked.Read(ref _buildInfoBackgroundsTagged)
+               + ", provider-faults:" + Interlocked.Read(ref _providerFaults);
 
         private static void Scan(Assembly[] assemblies)
         {
@@ -401,10 +402,13 @@ namespace CleanFeed.Compatibility
 
         private static void TryPatchTextHud(Assembly[] assemblies)
         {
-            Type factoryType = FindType(assemblies, "UIFun.FontTexture");
-            MethodInfo factory = FindMethod(factoryType, "Factory", m =>
-                m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == typeof(int));
-            bool factoryOk = PatchFactory(factory);
+            bool factoryOk = false;
+            foreach (Type factoryType in FindTypes(assemblies, "UIFun.FontTexture"))
+            {
+                MethodInfo factory = FindMethod(factoryType, "Factory", m =>
+                    m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == typeof(int));
+                if (PatchFactory(factory)) factoryOk = true;
+            }
 
             int draws = 0;
             int ctors = 0;
@@ -415,8 +419,8 @@ namespace CleanFeed.Compatibility
                 "UIFun.Messagesv2.ModBillboardTriHUDMessage"
             };
             foreach (string typeName in types)
+            foreach (Type type in FindTypes(assemblies, typeName))
             {
-                Type type = FindType(assemblies, typeName);
                 draws += PatchAllNamed("texthud-backend", type, "Draw", ResolveTagged);
                 ctors += PatchConstructors(type, "Text HUD backend ctor patch");
             }
@@ -429,15 +433,18 @@ namespace CleanFeed.Compatibility
 
         private static void TryPatchFlipBurn(Assembly[] assemblies, int richHudTargets)
         {
-            Type hud = FindType(assemblies, "FlipAndBurn.Hud");
-            int count = PatchAllNamed(null, hud, "Draw", _ => DefaultTag("flip-burn"), true);
+            int count = 0;
+            foreach (Type hud in FindTypes(assemblies, "FlipAndBurn.Hud"))
+            {
+                count += PatchAllNamed(null, hud, "Draw", _ => DefaultTag("flip-burn"), true);
 
-            // The GPS/signal target selector - corner brackets, travel time, offscreen arrow -
-            // follows the native gps category, so hiding gps from the recording also hides the
-            // selector that points at it. DrawSelectedSignal runs from the Spectrum render hook,
-            // outside Hud.Draw's scope, hence its own alwaysScope patch.
-            count += PatchAllNamed(null, hud, "DrawGpsDestination", _ => DefaultTag("gps"), true);
-            count += PatchAllNamed(null, hud, "DrawSelectedSignal", _ => DefaultTag("gps"), true);
+                // The GPS/signal target selector - corner brackets, travel time, offscreen arrow -
+                // follows the native gps category, so hiding gps from the recording also hides the
+                // selector that points at it. DrawSelectedSignal runs from the Spectrum render hook,
+                // outside Hud.Draw's scope, hence its own alwaysScope patch.
+                count += PatchAllNamed(null, hud, "DrawGpsDestination", _ => DefaultTag("gps"), true);
+                count += PatchAllNamed(null, hud, "DrawSelectedSignal", _ => DefaultTag("gps"), true);
+            }
 
             // The nav menu is a RichHud UI tree. Its chrome is emitted by Flip and Burn's own
             // embedded copy of the framework and its text by the master on the client's behalf; both
@@ -750,8 +757,9 @@ namespace CleanFeed.Compatibility
 
         private static void TryPatchHudLcd(Assembly[] assemblies)
         {
-            Type type = FindType(assemblies, "Jawastew.HudLcd.HudLcd");
-            int count = PatchAllNamed("hudlcd", type, "UpdateHUDMessage", ResolveHudLcd, true);
+            int count = 0;
+            foreach (Type type in FindTypes(assemblies, "Jawastew.HudLcd.HudLcd"))
+                count += PatchAllNamed(null, type, "UpdateHUDMessage", ResolveHudLcd, true);
             SetStatus("hudlcd", count > 0 ? "partitioned" : "inactive", count,
                 count > 0 ? "classic+marker" : "provider-missing");
         }
@@ -780,11 +788,14 @@ namespace CleanFeed.Compatibility
         // is still null.
         private static void TryPatchBuildInfo(Assembly[] assemblies)
         {
-            Type type = FindType(assemblies, "Digi.BuildInfo.Features.ToolbarInfo.ToolbarLabelRender");
             int count = 0;
-            count += PatchAllNamed(null, type, "TextAPIDetected", _ => DefaultTag("toolbar"), true);
-            count += PatchAllNamed(null, type, "UpdateAfterSim", _ => DefaultTag("toolbar"), true);
-            count += PatchAllNamed(null, type, "UpdateRender", _ => DefaultTag("toolbar"), true);
+            foreach (Type type in FindTypes(
+                         assemblies, "Digi.BuildInfo.Features.ToolbarInfo.ToolbarLabelRender"))
+            {
+                count += PatchAllNamed(null, type, "TextAPIDetected", _ => DefaultTag("toolbar"), true);
+                count += PatchAllNamed(null, type, "UpdateAfterSim", _ => DefaultTag("toolbar"), true);
+                count += PatchAllNamed(null, type, "UpdateRender", _ => DefaultTag("toolbar"), true);
+            }
             SetStatus("buildinfo-toolbar", count > 0 ? "partitioned" : "inactive", count,
                 count > 0 ? "toolbar-profile; persistent-texthud; labels+background" : "provider-missing");
         }
@@ -795,11 +806,11 @@ namespace CleanFeed.Compatibility
         private static void TryPatchProviderMethods(
             Assembly[] assemblies, string key, string typeName, params string[] methods)
         {
-            Type type = FindType(assemblies, typeName);
             int count = 0;
+            foreach (Type type in FindTypes(assemblies, typeName))
             foreach (string name in methods)
                 count += PatchAllNamed(
-                    key, type, name, _ => DefaultTag(key), true,
+                    null, type, name, _ => DefaultTag(key), true,
                     string.Equals(key, "flight-hud", StringComparison.OrdinalIgnoreCase));
             SetStatus(key, count > 0 ? "partitioned-partial" : "inactive", count,
                 count > 0 ? "source-scoped; world-lines/triangles pass" : "provider-missing");
@@ -971,8 +982,22 @@ namespace CleanFeed.Compatibility
         // can fault on foreign data - RichHud's shared buffers, a held triangle, the retained-route
         // seal - and losing the restore would leave this thread's [ThreadStatic] tag pointing at a
         // finished scope, silently misrouting every later draw on the frame.
-        private static Exception ScopeFinalizer(Exception __exception, ScopeState __state)
+        private static Exception ScopeFinalizer(
+            MethodBase __originalMethod, Exception __exception, ScopeState __state)
         {
+            // The exception is handed straight back to Harmony, which rethrows it with a plain
+            // `throw` - and that RESETS the stack trace to the rethrow site inside the generated
+            // replacement. Everything the provider's own body was doing when it faulted is erased,
+            // and what the game logs instead is a one-frame trace naming <Method>_Patch1, which
+            // reads as "CleanFeed's patch threw" when CleanFeed only carried the exception past.
+            // That misattribution cost a whole investigation on 2026-08-14: 2327 Text HUD faults
+            // logged with ModHUDMessage.Draw_Patch1 as the innermost frame while 7505 instances of
+            // the SAME fault, on an unpatched sibling path, carried the full trace and named the
+            // real site. The trace is intact HERE, before the rethrow, so it is recorded once per
+            // distinct method and exception type. Bounded because a faulting provider faults at
+            // HUD rates; the counter carries the volume.
+            if (__exception != null) NoteProviderFault(__originalMethod, __exception);
+
             if (__state.Active)
             {
                 try
@@ -1034,6 +1059,41 @@ namespace CleanFeed.Compatibility
             if (Interlocked.Exchange(ref latch, 1) != 0) return;
             Plugin.Log("compat " + stage + " failed and was swallowed: "
                        + ex.GetType().Name + " - " + ex.Message);
+        }
+
+        // Distinct method-and-exception pairs already reported, capped so a mod that throws every
+        // frame from many methods cannot turn the log into its own crash dump.
+        private const int ProviderFaultReportCap = 6;
+        private static readonly object ProviderFaultGate = new object();
+        private static readonly HashSet<string> ProviderFaultsReported =
+            new HashSet<string>(StringComparer.Ordinal);
+        private static long _providerFaults;
+
+        private static void NoteProviderFault(MethodBase method, Exception ex)
+        {
+            Interlocked.Increment(ref _providerFaults);
+            string site;
+            try
+            {
+                site = (method?.DeclaringType?.FullName ?? "<unknown>") + "."
+                       + (method?.Name ?? "<unknown>") + " / " + ex.GetType().FullName;
+            }
+            catch { site = "<unknown> / " + ex.GetType().Name; }
+
+            lock (ProviderFaultGate)
+            {
+                if (ProviderFaultsReported.Count >= ProviderFaultReportCap) return;
+                if (!ProviderFaultsReported.Add(site)) return;
+            }
+
+            string trace;
+            try { trace = ex.StackTrace; }
+            catch { trace = null; }
+            Plugin.Log("patched provider method threw and the exception is being returned to it"
+                       + " unchanged (CleanFeed neither raised nor swallowed it); Harmony's rethrow"
+                       + " will reset the trace, so the original is recorded here once: " + site
+                       + " - " + ex.Message
+                       + (string.IsNullOrEmpty(trace) ? string.Empty : Environment.NewLine + trace));
         }
 
         private static void FactoryPostfix(object __result)
@@ -1456,6 +1516,33 @@ namespace CleanFeed.Compatibility
                 if (type != null) newest = type;
             }
             return newest;
+        }
+
+        // Every declaring assembly, in load order, for the patch sites - as opposed to FindType,
+        // which answers the single-binding question ("which copy is live") and is right only where
+        // ONE object or assembly has to be chosen.
+        //
+        // Patching is not that question. A patch on a dead copy is inert (its methods are never
+        // called again), while an unpatched live copy is a silent recording leak, so the safe
+        // answer for a patch site is "all of them" and newest-only is a gamble on the load-order
+        // heuristic being right. It is not always right: the scan runs on an assembly-count poll,
+        // and a SeamlessClient session can load two full mod sets between two polls - a lobby
+        // server and then the sector server it hands off to. The 2026-08-14 22:26 and 22:28 bursts
+        // did exactly that with no scan in between, so the 22:26 copy of every FindType-selected
+        // provider was never patched at all: had that copy been the live one, every source it owns
+        // would have recorded while the profile said player-only.
+        //
+        // PatchScope and TryPatchLocked both dedupe by MethodBase, so re-offering an already
+        // patched copy on the next scan costs a hash lookup and nothing else.
+        private static List<Type> FindTypes(IEnumerable<Assembly> assemblies, string fullName)
+        {
+            var found = new List<Type>();
+            foreach (Assembly assembly in assemblies)
+            {
+                Type type = SafeGetType(assembly, fullName);
+                if (type != null) found.Add(type);
+            }
+            return found;
         }
 
         private static Type SafeGetType(Assembly assembly, string fullName)
