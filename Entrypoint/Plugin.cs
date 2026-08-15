@@ -3,14 +3,12 @@ using System.Reflection;
 using CleanFeed.Core;
 using CleanFeed.Compatibility;
 using CleanFeed.Diagnostics;
-using CleanFeed.Overlay;
 using CleanFeed.Profiles;
 using CleanFeed.Render;
 using CleanFeed.Screens;
 using HarmonyLib;
 using Sandbox.Graphics.GUI;
 using Sandbox.ModAPI;
-using VRage.Input;
 using VRage.Plugins;
 using VRage.Utils;
 
@@ -21,9 +19,9 @@ using VRage.Utils;
 
 namespace CleanFeed
 {
-    // CleanFeed capture-isolation spike. The first vertical slice puts a conspicuous player-only
-    // overlay above SE. NVIDIA and OBS routes deliberately leave the window unprotected so their
-    // game-capture paths can ignore the separate HWND without triggering protected-content gates.
+    // Plugin entry point: lifecycle, chat commands, the adapter scan cadence, and the redirect's
+    // session gating. The composed player surface deliberately carries no capture-protection flag,
+    // so NVIDIA and OBS game-capture paths read the game swapchain untouched.
     public sealed class Plugin : IPlugin
     {
         public const string Id = "cleanfeed";
@@ -33,12 +31,8 @@ namespace CleanFeed
         private const int AssemblyPollTicks = 120;
         private const int ViewContextPollTicks = 30;
 
-#if !LINUX
-        private readonly OverlayController _overlay = new OverlayController();
-#endif
         private Commands _commands;
         private bool _chatHooked;
-        private int _hotkeyCooldown;
         private Harmony _harmony;
         private bool _renderPatchesReady;
         private int _assemblyPoll;
@@ -118,8 +112,6 @@ namespace CleanFeed
                 catch { /* session utilities can be transiently unavailable while a world opens */ }
             }
 
-            try { PollHotkey(); }
-            catch (Exception ex) { LogOnce("hotkey", ex); }
             try
             {
                 HudProfileService.Update();
@@ -200,62 +192,7 @@ namespace CleanFeed
             HudAdapterCoordinator.Update(assemblies, changed);
         }
 
-        private void PollHotkey()
-        {
-            if (_hotkeyCooldown > 0) { _hotkeyCooldown--; return; }
-            var input = MyAPIGateway.Input;
-            if (input == null) return;
-            try { if (MyAPIGateway.Gui != null && MyAPIGateway.Gui.ChatEntryVisible) return; } catch { }
-            if (!input.IsAnyCtrlKeyPressed() || !input.IsAnyShiftKeyPressed()) return;
-            if (!input.IsNewKeyPressed(MyKeys.F8)) return;
 
-            _hotkeyCooldown = 30;
-            ToggleTestOverlay();
-        }
-
-        internal void ToggleTestOverlay()
-        {
-#if !LINUX
-            HudRedirector.Disable();
-            bool visible = _overlay.Toggle();
-            Notify.Hud(visible
-                ? "CleanFeed " + OverlayController.RouteName(_overlay.CurrentRoute)
-                  + " test ON. Compare the live overlay with the recording."
-                : "CleanFeed test overlay OFF", 4500);
-            Log("test overlay " + (visible ? "shown" : "hidden"));
-#else
-            Notify.Chat("the capture test overlay is unavailable on this platform");
-#endif
-        }
-
-        internal void ShowTestOverlay(CaptureRoute route)
-        {
-#if !LINUX
-            HudRedirector.Disable();
-            _overlay.ShowTest(route);
-            string routeName = OverlayController.RouteName(route);
-            string guidance = route == CaptureRoute.Affinity
-                ? "Affinity test ON. This is known to trigger NVIDIA protected-content blocking."
-                : route == CaptureRoute.Obs
-                    ? "OBS test ON. Use Game Capture, specific SE window, third-party overlays off."
-                    : "NVIDIA test ON. Keep Desktop capture off and start normal game recording.";
-            Notify.Hud(guidance, 5500);
-            Log(routeName + " test overlay shown");
-#else
-            Notify.Chat("the capture test overlay is unavailable on this platform");
-#endif
-        }
-
-        internal void HideTestOverlay()
-        {
-#if !LINUX
-            HudRedirector.Disable();
-            _overlay.Hide();
-            Notify.Hud("CleanFeed test overlay OFF. Window destroyed and affinity cleared.", 3500);
-#else
-            Notify.Chat("the capture test overlay is unavailable on this platform");
-#endif
-        }
 
         internal void EnableHudRedirect()
         {
@@ -265,9 +202,6 @@ namespace CleanFeed
                 return;
             }
 
-#if !LINUX
-            _overlay.Hide();
-#endif
             if (!HudRedirector.Enable(out string reason))
             {
                 Notify.Chat("HUD redirect blocked: " + reason);
@@ -287,9 +221,6 @@ namespace CleanFeed
                 return;
             }
 
-#if !LINUX
-            _overlay.Hide();
-#endif
             HudProfileService.Update();
             if (!HudRedirector.EnableSelective(out string reason))
             {
@@ -315,11 +246,7 @@ namespace CleanFeed
                + "; " + HudBillboardProjector.StatusLine()
                + "; " + CleanFeedHealthTelemetry.StatusLine();
 
-#if !LINUX
-        public string StatusLine() => HudStatusLine() + "; " + _overlay.StatusLine();
-#else
         public string StatusLine() => HudStatusLine();
-#endif
 
         internal void OpenSettings()
         {
@@ -354,10 +281,6 @@ namespace CleanFeed
                 _harmony?.UnpatchAll(HarmonyId);
             }
             catch (Exception ex) { Log("render patch dispose failed: " + ex); }
-#if !LINUX
-            try { _overlay.Dispose(); }
-            catch (Exception ex) { Log("overlay dispose failed: " + ex); }
-#endif
             CleanFeedHealthTelemetry.Shutdown();
             Instance = null;
             Log("Dispose");

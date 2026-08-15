@@ -1,7 +1,6 @@
 using System;
 using CleanFeed.Compatibility;
 using CleanFeed.Diagnostics;
-using CleanFeed.Overlay;
 using CleanFeed.Profiles;
 
 namespace CleanFeed.Core
@@ -28,9 +27,6 @@ namespace CleanFeed.Core
             {
                 switch (command)
                 {
-                    case "test":
-                        _plugin.ShowTestOverlay(ParseRoute(parts));
-                        break;
                     case "settings":
                     case "config":
                         _plugin.OpenSettings();
@@ -89,25 +85,8 @@ namespace CleanFeed.Core
                     case "pda":
                         HandleDirectProfile(command, parts);
                         break;
-                    case "nvidia":
-                        _plugin.ShowTestOverlay(CaptureRoute.Nvidia);
-                        break;
-                    case "obs":
-                        _plugin.ShowTestOverlay(CaptureRoute.Obs);
-                        break;
-                    case "affinity":
-                        _plugin.ShowTestOverlay(CaptureRoute.Affinity);
-                        break;
-                    case "show":
-                    case "on":
-                        _plugin.ShowTestOverlay(CaptureRoute.Nvidia);
-                        break;
-                    case "hide":
                     case "off":
-                        _plugin.HideTestOverlay();
-                        break;
-                    case "toggle":
-                        _plugin.ToggleTestOverlay();
+                        _plugin.DisableHudRedirect();
                         break;
                     case "status":
                         string status = _plugin.StatusLine();
@@ -360,15 +339,5 @@ namespace CleanFeed.Core
             return false;
         }
 
-        private static CaptureRoute ParseRoute(string[] parts)
-        {
-            if (parts.Length < 3) return CaptureRoute.Nvidia;
-            switch (parts[2].ToLowerInvariant())
-            {
-                case "obs": return CaptureRoute.Obs;
-                case "affinity": return CaptureRoute.Affinity;
-                default: return CaptureRoute.Nvidia;
-            }
-        }
     }
 }

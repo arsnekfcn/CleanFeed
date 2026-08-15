@@ -115,13 +115,8 @@ Flip and Burn, streaming to Discord, performance, and troubleshooting in depth.
 - `/cleanfeed hud off` - stop redirecting, restore vanilla HUD rendering.
 - `/cleanfeed hud status` - GPU lifecycle, surface, timing, and fault telemetry.
 - `/cleanfeed profile <item> on|off|status` - advanced raw recording-visibility control.
-- `/cleanfeed test nvidia` or `/cleanfeed nvidia` - static NVIDIA capture diagnostic.
-- `/cleanfeed test obs` or `/cleanfeed obs` - static OBS Game Capture diagnostic.
-- `/cleanfeed test affinity` or `/cleanfeed affinity` - protected-window diagnostic. May block NVIDIA.
-- `/cleanfeed off` - stop the redirect and destroy the static test overlay.
-- `/cleanfeed toggle` - toggle the last static diagnostic route.
-- `/cleanfeed status` - both GPU HUD state and static-overlay state.
-- `Ctrl+Shift+F8` - toggle the last static diagnostic route.
+- `/cleanfeed off` - stop the redirect.
+- `/cleanfeed status` - GPU HUD lifecycle and telemetry in one line.
 
 ## Filters
 
@@ -312,20 +307,6 @@ attribution, not scope installation. All patches are installed at load. Routing 
 redirect is running, and until then every patch passes through to vanilla behavior. Teardown removes
 only that owner's patches.
 
-## Capture diagnostics
-
-Two static overlays exist to prove out a recorder before trusting the real route.
-
-**NVIDIA.** Enter `/cleanfeed test nvidia`. Confirm the green border, NVIDIA banner, and large `CF` are
-visible while playing, then record normally with Desktop Capture disabled. Pass: the game is recorded
-and every CleanFeed mark is absent.
-
-**OBS.** Add a **Game Capture** source for the Space Engineers window, leave **Capture third-party
-overlays** off, enter `/cleanfeed test obs`, record a clip, and compare it against the live view.
-Display Capture is expected to include the overlay and is not a clean-feed route.
-
-**Affinity.** `/cleanfeed test affinity` remains a static compatibility diagnostic only. It marks the
-window protected, which NVIDIA is known to reject.
 
 ## Validation status
 

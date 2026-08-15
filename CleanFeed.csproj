@@ -49,20 +49,6 @@
     <Publicize Include="VRage.Render11" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
-    <!-- The test overlay is code-only WPF: no XAML compiler or runtime dependency is shipped. -->
-    <Reference Include="PresentationCore" />
-    <Reference Include="PresentationFramework" />
-    <Reference Include="WindowsBase" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">
-    <!-- WPF on modern .NET comes from the WindowsDesktop shared framework, which is also what Pulsar
-         Interim hosts the game under (and probes for its plugin compiles). Deliberately NOT UseWPF=true:
-         that pulls in the XAML build targets this code-only overlay does not need. -->
-    <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
-  </ItemGroup>
-
   <ItemGroup>
     <Reference Include="VRage"><HintPath>$(SeBin64)\VRage.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="VRage.Game"><HintPath>$(SeBin64)\VRage.Game.dll</HintPath><Private>false</Private></Reference>

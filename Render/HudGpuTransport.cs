@@ -259,7 +259,6 @@ namespace CleanFeed.Render
                 Interlocked.Increment(ref _copyFailures);
                 throw;
             }
-            RecordCpuTime(started);
             int layerBit = 1 << (int)compositionLayer;
             if ((_pendingLayerMask & layerBit) != 0)
                 Interlocked.Increment(ref _overwrittenPendingCopies);
@@ -274,6 +273,7 @@ namespace CleanFeed.Render
                 Interlocked.Exchange(ref _lastPublishedBatchAt, now);
             }
             Interlocked.Increment(ref _copies);
+            RecordCpuTime(started);
         }
 
         // Called immediately before the game's sole DXGI Present. Commit publishes the already-copied
