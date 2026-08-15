@@ -1,0 +1,82 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      net48 = Pulsar Legacy (SE1 on .NET Framework). net10.0-windows = Pulsar Interim (SE1 on
+      .NET 10 via se-dotnet-compat). Pulsar's from-source build ignores this csproj and compiles
+      against its own reference set per variant; these legs exist so a local dotnet build is a
+      faithful compile gate for both. Outputs land in bin\<Configuration>\<tfm>\ (multi-targeting
+      requires the per-TFM split, so AppendTargetFrameworkToOutputPath stays at its default true;
+      deploy.ps1 reads both paths).
+    -->
+    <TargetFrameworks>net48;net10.0-windows</TargetFrameworks>
+    <Version>0.1.0</Version>
+    <AssemblyName>CleanFeed</AssemblyName>
+    <RootNamespace>CleanFeed</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Platforms>x64</Platforms>
+    <Configurations>Debug;Release</Configurations>
+    <!-- The game DLLs are net48 assemblies; referencing them from the net10 leg is exactly what
+         Pulsar Interim does, so silence the framework-mismatch noise. Nothing else is suppressed
+         here: a NoWarn only covers the local MSBuild compile, and Pulsar's from-source build has no
+         csproj to read it from, so per-TFM API differences are handled with #if in the source
+         instead (see RequireInterface in Render\NativeDirectComposition.cs). -->
+    <NoWarn>$(NoWarn);NU1701;MSB3277</NoWarn>
+    <!--
+      LOCAL_BUILD marks the MSBuild path, and is therefore always set here. Pulsar's marketplace
+      build compiles the source directories directly with no MSBuild, so it does not define it, and
+      the `#if !LOCAL_BUILD` blocks in Entrypoint/Plugin.cs and Tools/Publicize.cs supply what only
+      MSBuild would otherwise provide: the assembly version attributes (generated below from
+      <Version>) and IgnoresAccessChecksTo for VRage.Render11 (supplied here by Krafs.Publicizer).
+      Both builds end up equivalent; neither emits those twice.
+    -->
+    <DefineConstants>$(DefineConstants);LOCAL_BUILD</DefineConstants>
+    <!-- Pulsar's actual per-variant defines (verified against SpaceGT/Pulsar source): v2.3.1 is
+         NETFRAMEWORK or NETCOREAPP plus TRACE and nothing else; post-2.3.1 main adds PULSAR always
+         and LINUX on native Linux only (Proton reports IsWindows). The SDK already defines
+         NETFRAMEWORK/NETCOREAPP per TFM and this machine is Windows, so there is nothing to add -
+         in particular no PLATFORM_WINDOWS, which was never a Pulsar symbol and whose use as a
+         fence silently compiled the WPF overlay out of every from-source install. -->
+    <SeBin64 Condition="'$(SeBin64)' == ''">C:\Program Files (x86)\Steam\steamapps\common\SpaceEngineers\Bin64</SeBin64>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Pulsar supplies Harmony at runtime; keep the local build API-aligned without shipping a second copy.
+         Both packages are TFM-agnostic here: Lib.Harmony 2.4.2 ships net48 + netstandard2.0/net8.0 libs and
+         Krafs.Publicizer 2.3.0 is a build-task package, so neither needs a per-leg condition. -->
+    <PackageReference Include="Lib.Harmony" Version="2.4.2" ExcludeAssets="runtime" />
+    <PackageReference Include="Krafs.Publicizer" Version="2.3.0" PrivateAssets="all" />
+    <Publicize Include="VRage.Render11" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <!-- The test overlay is code-only WPF: no XAML compiler or runtime dependency is shipped. -->
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="WindowsBase" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">
+    <!-- WPF on modern .NET comes from the WindowsDesktop shared framework, which is also what Pulsar
+         Interim hosts the game under (and probes for its plugin compiles). Deliberately NOT UseWPF=true:
+         that pulls in the XAML build targets this code-only overlay does not need. -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="VRage"><HintPath>$(SeBin64)\VRage.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="VRage.Game"><HintPath>$(SeBin64)\VRage.Game.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="VRage.Library"><HintPath>$(SeBin64)\VRage.Library.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="VRage.Input"><HintPath>$(SeBin64)\VRage.Input.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="VRage.Math"><HintPath>$(SeBin64)\VRage.Math.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="VRage.Render"><HintPath>$(SeBin64)\VRage.Render.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="VRage.Render11"><HintPath>$(SeBin64)\VRage.Render11.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="SharpDX"><HintPath>$(SeBin64)\SharpDX.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="SharpDX.DXGI"><HintPath>$(SeBin64)\SharpDX.DXGI.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="SharpDX.Direct3D11"><HintPath>$(SeBin64)\SharpDX.Direct3D11.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Sandbox.Common"><HintPath>$(SeBin64)\Sandbox.Common.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Sandbox.Game"><HintPath>$(SeBin64)\Sandbox.Game.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Sandbox.Graphics"><HintPath>$(SeBin64)\Sandbox.Graphics.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,9 @@
+bin/
+obj/
+*.user
+.vs/
+.vscode/
+.idea/
+Directory.Build.props
+*.dll.old
+Krafs.Publicizer.*.log
