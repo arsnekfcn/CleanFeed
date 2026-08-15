@@ -541,7 +541,19 @@ These are measured numbers from one machine, not a promise about yours.
   observation, and counters that detect it are in `/cf hud status`. The failure direction is
   over-hiding: the element goes missing from your own view for a moment rather than appearing in the
   recording. If you see it, an issue with the `[cleanfeed]` log lines from around that moment is
- useful.
+  useful.
+
+- **Server transfers on SeamlessClient networks.** These networks reload the entire mod script
+  assembly set on each transfer without restarting the game or unloading the previous copies.
+  CleanFeed rescans and re-patches every copy as it appears, so routing follows the transfer. Two
+  things are outside CleanFeed's control: mods themselves can bind across the duplicated copies and
+  start faulting or stop drawing entirely after a transfer, which shows up as missing or erroring
+  mod HUD elements and is only reset by a full game restart; and CleanFeed identifies detected
+  sources by assembly fingerprint, which a transfer changes, so **per-source `detected.*` hide
+  settings revert to Recorded after a transfer and must be re-applied**. There is also a short
+  window after each transfer, bounded by CleanFeed's assembly poll, in which a freshly loaded
+  provider can draw before its patches are installed and reach the recording; if you are streaming
+  or recording across a transfer, hold the capture until the HUD settles.
 
 ---
 

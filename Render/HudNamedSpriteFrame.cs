@@ -38,6 +38,7 @@ namespace CleanFeed.Render
         private static bool _mayHaveContent;
         private static bool _hudHiddenCleared;
         private static bool _retainTimeoutCleared;
+        private static bool _retainSawHidden;
         private static long _countSamples;
         private static long _countChanges;
         private static long _largeCountSwings;
@@ -117,6 +118,7 @@ namespace CleanFeed.Render
                     return;
                 }
                 Interlocked.Exchange(ref _retainRun, 0);
+                _retainSawHidden = false;
                 bool holdTransientBatches = sealDecision == VanillaHudSealDecision.Fallback;
 
                 if (messages == null)
@@ -274,7 +276,16 @@ namespace CleanFeed.Render
             while (run > (highWater = Interlocked.Read(ref _retainRunHighWater))
                    && Interlocked.CompareExchange(ref _retainRunHighWater, run, highWater) != highWater) { }
 
-            if (_retainTimeoutCleared || !_mayHaveContent) return;
+            // The wedge this timeout exists for is entered THROUGH a hidden state: a hide or a
+            // suppression stalls publication and the layer resumes against mismatched frame ids.
+            // A retain run with no hidden observation is just the GUI thread running behind -
+            // signal-dense areas stall generations past the threshold routinely - and blanking a
+            // healthy layer on every such stall read as rapid marker flicker in the field
+            // (retain-timeout-clears=80 in one session). Load stalls therefore FREEZE, which is
+            // the pre-timeout behaviour, and only hidden-tainted runs may clear.
+            if (HudRedirector.GameHudHidden()) _retainSawHidden = true;
+
+            if (_retainTimeoutCleared || !_mayHaveContent || !_retainSawHidden) return;
             long publishedAt = Interlocked.Read(ref _lastPublishAt);
             if (publishedAt == 0 || Stopwatch.GetTimestamp() - publishedAt <= RetainTimeoutTicks) return;
 
@@ -288,6 +299,7 @@ namespace CleanFeed.Render
             Interlocked.Exchange(ref _retainRun, 0);
             Interlocked.Exchange(ref _lastPublishAt, 0);
             _retainTimeoutCleared = false;
+            _retainSawHidden = false;
         }
 
         internal static string StatusLine()
