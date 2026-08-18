@@ -125,7 +125,7 @@ namespace CleanFeed.Profiles
     internal static class HudProfileService
     {
         private const string FileName = "CleanFeed.profile.ini";
-        private const string FolderName = "CleanFeed";
+        private const string PluginsFolderName = "Plugins";
         // Loader bounds. A profile is a plain text file the user (or anything else with write access
         // to it) can hand us, so the parser refuses to grow unbounded dictionaries from it.
         private const int MaxOverrideEntries = 512;
@@ -135,7 +135,6 @@ namespace CleanFeed.Profiles
         private static string _profileDirectory;
         private static string _profilePath;
         private static string[] _scrubbedPaths;
-        private static string _legacyDirectory;
         private static readonly string[] NativeKeys =
         {
             "terminal", "chat", "toolbar", "speed", "gps", "battery-fuel"
@@ -169,16 +168,29 @@ namespace CleanFeed.Profiles
                 .Concat(_current.PlayerOverrides.Keys.Where(HudSourceRegistry.IsDynamicPolicyKey))
                 .Distinct(StringComparer.OrdinalIgnoreCase);
 
-        // MyAPIGateway.Utilities.*FileInLocalStorage keys its folder to the compiled assembly's
-        // module name, which Pulsar's from-source build randomises per compile - every recompile
-        // orphaned the previous settings. Persist to a fixed per-user path instead.
+        // The profile lives beside the game's own settings, under MyFileSystem.UserDataPath, in the
+        // Plugins folder other Pulsar plugins already write their config into. That keeps plugin
+        // data from scattering - moving %APPDATA%\SpaceEngineers carries game and plugin settings
+        // together - and honours an -appdata launch override, which the plain %APPDATA% probe this
+        // replaces silently ignored.
+        //
+        // Deliberately no migration from either earlier location (%APPDATA%\CleanFeed, and the
+        // UserDataPath\Storage\<module-name> folders the game's local-storage API produced - that
+        // API keys its folder to the calling assembly's module name, which Pulsar randomises per
+        // from-source compile, which is why it is not used here). The plugin has never shipped
+        // through PluginHub, so no installed profile predates this path.
         //
         // Computed on first use rather than in a static initializer, following the BuildId pattern
-        // in Render\HudRedirector.cs: Environment.GetFolderPath can throw, and this type is read on
-        // the per-draw path through Current, so a folder probe must never be able to poison it. A
+        // in Render\HudRedirector.cs: path resolution can throw, and this type is read on the
+        // per-draw path through Current, so a folder probe must never be able to poison it. A
         // failure degrades to an empty path, which makes Load and Save no-ops that report
         // "storage-unavailable" - settings stop persisting, nothing else changes. A benign race
         // just computes the same value twice.
+        //
+        // Unlike the %APPDATA% lookup, MyFileSystem.UserDataPath THROWS until the game has called
+        // MyFileSystem.Init, so a failure here can be merely early rather than permanent. Only a
+        // resolved path is memoised; an unresolved one is retried on the next call, because caching
+        // the empty string would disable persistence for the rest of the session.
         private static string ProfileDirectory
         {
             get
@@ -187,13 +199,13 @@ namespace CleanFeed.Profiles
                 string value;
                 try
                 {
-                    string appData = SafeFolder(Environment.SpecialFolder.ApplicationData);
-                    value = string.IsNullOrEmpty(appData)
+                    string userData = SafeUserDataPath();
+                    value = string.IsNullOrEmpty(userData)
                         ? string.Empty
-                        : Path.Combine(appData, FolderName);
+                        : Path.Combine(userData, PluginsFolderName);
                 }
                 catch { value = string.Empty; }
-                _profileDirectory = value;
+                if (value.Length != 0) _profileDirectory = value;
                 return value;
             }
         }
@@ -210,7 +222,7 @@ namespace CleanFeed.Profiles
                     value = directory.Length == 0 ? string.Empty : Path.Combine(directory, FileName);
                 }
                 catch { value = string.Empty; }
-                _profilePath = value;
+                if (value.Length != 0) _profilePath = value;
                 return value;
             }
         }
@@ -224,7 +236,10 @@ namespace CleanFeed.Profiles
                 string[] value;
                 try { value = BuildScrubbedPaths(); }
                 catch { value = new string[0]; }
-                _scrubbedPaths = value;
+                // Memoised only once the game-relative paths resolve. Before that the list is still
+                // usable, just short of the profile directory, and caching it would under-scrub for
+                // the rest of the session.
+                if (ProfileDirectory.Length != 0) _scrubbedPaths = value;
                 return value;
             }
         }
@@ -232,6 +247,13 @@ namespace CleanFeed.Profiles
         private static string SafeFolder(Environment.SpecialFolder folder)
         {
             try { return Environment.GetFolderPath(folder); }
+            catch { return null; }
+        }
+
+        // MyFileSystem throws InvalidOperationException if the game has not initialised its paths.
+        private static string SafeUserDataPath()
+        {
+            try { return MyFileSystem.UserDataPath; }
             catch { return null; }
         }
 
@@ -525,20 +547,11 @@ namespace CleanFeed.Profiles
                     _lastPersistence = "storage-unavailable";
                     return;
                 }
-                bool migrated = false;
                 if (!File.Exists(path))
                 {
-                    string legacy = LegacyProfilePath();
-                    if (legacy == null || !File.Exists(legacy))
-                    {
-                        _lastPersistence = "defaults(no-file)";
-                        Save();
-                        return;
-                    }
-                    // One-time pull-forward from the old game-Storage location. The old file is left
-                    // in place; the Save below writes the profile to its new stable home.
-                    path = legacy;
-                    migrated = true;
+                    _lastPersistence = "defaults(no-file)";
+                    Save();
+                    return;
                 }
 
                 int schema = 1;
@@ -621,8 +634,7 @@ namespace CleanFeed.Profiles
                                        ? "migrated-v" + schema
                                        : "loaded")
                                    + (capped ? "(capped)" : string.Empty);
-                if (migrated) Plugin.Log("profile migrated from game Storage");
-                if (migrated || schema < HudProfileSnapshot.CurrentSchema) Save();
+                if (schema < HudProfileSnapshot.CurrentSchema) Save();
             }
             catch (Exception ex)
             {
@@ -688,23 +700,6 @@ namespace CleanFeed.Profiles
             }
         }
 
-        private static string LegacyProfilePath()
-        {
-            try
-            {
-                string root = MyFileSystem.UserDataPath;
-                if (string.IsNullOrEmpty(root)) return null;
-                string directory = Path.Combine(root, "Storage", FolderName);
-                _legacyDirectory = directory;
-                return Path.Combine(directory, FileName);
-            }
-            catch (Exception)
-            {
-                // MyFileSystem throws if the game has not initialised it; treat that as "no legacy file".
-                return null;
-            }
-        }
-
         // File IO exceptions quote the full profile path, which contains the Windows user name, and
         // the plugin log is something users paste into bug reports. Log the exception type plus a
         // message with every profile directory reduced to a constant placeholder.
@@ -714,8 +709,6 @@ namespace CleanFeed.Profiles
             string[] scrubbed = ScrubbedPaths;
             for (int i = 0; i < scrubbed.Length; i++)
                 message = message.Replace(scrubbed[i], "<profile>");
-            string legacy = _legacyDirectory;
-            if (!string.IsNullOrEmpty(legacy)) message = message.Replace(legacy, "<profile>");
             return message;
         }
 
@@ -725,6 +718,7 @@ namespace CleanFeed.Profiles
             var paths = new List<string>
             {
                 ProfileDirectory,
+                SafeUserDataPath(),
                 SafeFolder(Environment.SpecialFolder.ApplicationData),
                 SafeFolder(Environment.SpecialFolder.UserProfile)
             };

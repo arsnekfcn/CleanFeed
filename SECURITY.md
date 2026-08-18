@@ -8,12 +8,13 @@ recorder, display mode, and plugin set before streaming sensitive locations or i
 ## Data handling
 
 CleanFeed has no telemetry service and sends no game or user data over the network. It stores only HUD
-visibility preferences, written as a plain text file to `%APPDATA%\CleanFeed\CleanFeed.profile.ini`, and
-writes renderer/resource health diagnostics to the normal game log. That fixed per-user path is used
-instead of the game's plugin-local storage API because the API keys its folder to the compiled module
-name, which Pulsar randomises on every from-source recompile; the current location is stable across
-plugin updates and recompiles. A profile found in the older game Storage location is migrated forward
-once on first load and the old file is left in place. Diagnostics omit entity IDs and do not collect
+visibility preferences, written as a plain text file to `CleanFeed.profile.ini` in the game's own
+`Plugins` folder under its user data path (normally `%APPDATA%\SpaceEngineers\Plugins`), and writes
+renderer/resource health diagnostics to the normal game log. A fixed name under the game's data folder
+is used instead of the game's plugin-local storage API because that API keys its folder to the compiled
+module name, which Pulsar randomises on every from-source recompile; the current location is stable
+across plugin updates and recompiles and moves with the rest of the game's settings.
+Diagnostics omit entity IDs and do not collect
 world names, server names, GPS coordinates, chat contents, or authentication data; logged exception
 text has local directory paths scrubbed out.
 

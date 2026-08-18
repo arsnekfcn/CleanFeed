@@ -205,9 +205,10 @@ tooltip, and the `gamecore` row carries a red **THIS EXPOSES GPS** warning next 
 Normal edits are staged until Apply. Starting or stopping a redirect, rescanning sources, copying
 diagnostics, and requesting support are immediate.
 
-Settings persist to `%APPDATA%\CleanFeed\CleanFeed.profile.ini`, a fixed per-user path that survives
-plugin updates and Pulsar's from-source recompiles. A profile left in the game's older plugin-local
-storage folder is **migrated forward once** on first load and then written to the new location.
+Settings persist to `CleanFeed.profile.ini` in the game's own `Plugins` folder, normally
+`%APPDATA%\SpaceEngineers\Plugins`, alongside the config of other plugins; a custom user data path
+(`-appdata`) is honoured. The name is fixed, so settings survive plugin updates and Pulsar's
+from-source recompiles.
 
 The registry always lists every explicit CleanFeed category, including inactive compatibility
 providers. For unknown providers, CleanFeed passively inventories HUD-like loaded types and Harmony

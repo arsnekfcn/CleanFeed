@@ -174,8 +174,9 @@ which values are per-item overrides and which are inherited from the global defa
 
 ### Where your settings live
 
-Settings save automatically to `CleanFeed.profile.ini` in **`%APPDATA%\CleanFeed`** and reload next
-time you play.
+Settings save automatically to `CleanFeed.profile.ini` in the game's own plugin config folder -
+normally **`%APPDATA%\SpaceEngineers\Plugins`** - and reload next time you play. They sit with the rest
+of your Space Engineers settings, so moving that folder to another machine brings them along.
 
 ---
 
