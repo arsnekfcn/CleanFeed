@@ -54,6 +54,10 @@ namespace CleanFeed.Compatibility
         private static bool _schemaBroken;
         private static int _schemaLogged;
         private static int _readFaultLogged;
+        // Names the copy a logged fault belongs to. Under SeamlessClient several copies of the mod
+        // are loaded at once, so "the gate broke" is only actionable if the line says which binding
+        // broke; without it two lines from two transfers are indistinguishable.
+        private static string _assemblyName;
 
         private static long _reads;
         private static long _failClosed;
@@ -85,6 +89,19 @@ namespace CleanFeed.Compatibility
                 _hudField = null;
                 _controllerField = null;
                 _viewProperty = null;
+                // Both log latches are per BINDING, not per process. They exist to keep a persistent
+                // fault off a per-frame path, and clearing _schemaBroken above without clearing them
+                // meant the first binding to break was the only one that could ever say so: every
+                // later copy - a SeamlessClient transfer, a mod update mid-session - failed silently,
+                // visible only as gamecore-pda= in a status line nobody had a reason to run. That is
+                // the one path where over-hiding costs the user their PDA outright, so it has to be
+                // able to announce itself more than once per session.
+                Interlocked.Exchange(ref _schemaLogged, 0);
+                Interlocked.Exchange(ref _readFaultLogged, 0);
+                string name;
+                try { name = gameCoreAssembly.GetName().Name; }
+                catch { name = "<unnamed>"; }
+                Volatile.Write(ref _assemblyName, name);
                 Invalidate();
 
                 Type session;
@@ -178,7 +195,8 @@ namespace CleanFeed.Compatibility
                 if (Interlocked.Exchange(ref _readFaultLogged, 1) == 0)
                     Plugin.Log("GameCore PDA gate read failed: " + ex.GetType().Name + " - "
                                + ex.Message + "; GameCore RichHud UI is being routed player-only"
-                               + " while the mod draws");
+                               + " while the mod draws [binding="
+                               + (Volatile.Read(ref _assemblyName) ?? "unbound") + "]");
                 return FailClosed();
             }
         }
@@ -192,7 +210,7 @@ namespace CleanFeed.Compatibility
         private static void NoteSchemaBreak(string message)
         {
             if (Interlocked.Exchange(ref _schemaLogged, 1) != 0) return;
-            Plugin.Log(message);
+            Plugin.Log(message + " [binding=" + (Volatile.Read(ref _assemblyName) ?? "unbound") + "]");
         }
 
         internal static string StatusLine()

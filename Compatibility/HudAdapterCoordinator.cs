@@ -598,6 +598,14 @@ namespace CleanFeed.Compatibility
             int textBoards = 0;
             bool gameCoreBound = false;
             int gameCoreTargets = 0;
+            // The GameCore copy the gate binds, resolved the same way the master is above: LAST
+            // match, i.e. newest under SeamlessClient. Deferred out of the loop deliberately.
+            // Binding inside it rebound the gate once per copy, so with several copies loaded the
+            // gate ended up describing whichever copy the enumeration happened to visit last while
+            // every earlier copy's schema verdict was resolved and then thrown away - wasted
+            // reflection, and a schema-broken state that did not necessarily belong to the binding
+            // the draw path actually reads.
+            Assembly gameCoreAssembly = null;
             foreach (Assembly assembly in assemblies)
             {
                 if (assembly == master || SafeGetType(assembly, RichHudClientType) == null) continue;
@@ -609,7 +617,7 @@ namespace CleanFeed.Compatibility
                 bool gameCore = SafeGetType(assembly, GameCoreSessionType) != null;
                 if (gameCore)
                 {
-                    GameCorePdaGate.Bind(assembly);
+                    gameCoreAssembly = assembly;
                     gameCoreBound = true;
                 }
                 int assemblyTargets = 0;
@@ -647,6 +655,9 @@ namespace CleanFeed.Compatibility
                 count += assemblyTargets;
                 if (gameCore) gameCoreTargets += assemblyTargets;
             }
+
+            // One bind, against the newest copy, after every copy has been seen.
+            if (gameCoreAssembly != null) GameCorePdaGate.Bind(gameCoreAssembly);
 
             SetStatus("richhud-nav", count > 0 ? "partitioned" : "inactive", count,
                 count > 0

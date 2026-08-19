@@ -66,6 +66,11 @@ namespace CleanFeed.Profiles
 
         // Overloads for callers holding a key that NormalizeKey has already canonicalised - notably
         // HudRouteTag, whose Key is normalised once in its constructor.
+        // Making detected.* keys opt-in - passthrough unless the user names them - was reverted with
+        // the untagged change it shipped beside. Same hazard, same reason: RichHud's own framework
+        // appears here as detected.1965654081-sbm-richhudframework.*, and moving that content off
+        // the filtered route takes it out of the quad capture, which is what puts it on the layer.
+        // Revisit only after framework-scoped content carries an explicit tag; see ResolveRoute.
         internal bool RecordingVisibleNormalized(string key)
         {
             if (HudSourceRegistry.IsDynamicPolicyKey(key) && !DynamicPolicyConfirmed(key)) return true;

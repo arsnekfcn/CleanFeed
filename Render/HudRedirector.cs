@@ -66,6 +66,13 @@ namespace CleanFeed.Render
         private static int _activationGeneration;
         private static volatile bool _privacySuppression;
         private static string _privacyReason = "inactive";
+        // Primitives that reached a routing decision with no tag and therefore took the global
+        // route. Nonzero is normal and LARGE: RichHud routes most of its clients this way on
+        // purpose, so this is not a count of "unknown" content, it is the count of content with no
+        // identity of its own. Read it when a user reports an element misbehaving that they never
+        // configured - it is how much of the HUD is being routed by the global default rather than
+        // by anything they chose.
+        private static long _untaggedPassed;
         private static long _privacyActivations;
         private static long _privacyReleases;
         private static long _privacyDiscardFrames;
@@ -138,10 +145,27 @@ namespace CleanFeed.Render
             }
         }
 
+        // Untagged content follows the global route. DO NOT change this to a passthrough without
+        // first giving framework-scoped content an explicit tag - see the counter's comment and
+        // HudAdapterCoordinator.RichHudClientScope.Resolve.
+        //
+        // A null tag does NOT mean "CleanFeed has no idea what this is". RichHudClientScope returns
+        // null deliberately, for every RichHud client other than Flip and Burn and for GameCore
+        // whenever the PDA is closed, precisely so those primitives keep following whatever global
+        // route is in force. Returning Recorded here instead made that content bypass the quad
+        // capture - HudRichHudQuadCapture.BeginScope requires PlayerOnly - so it was never projected
+        // onto the RichHud layer and was left on the backbuffer underneath the composited surface.
+        // Symptom: the GameCore PDA invisible whenever the redirect is on, regardless of what the
+        // gamecore key is set to, because those pixels were never following gamecore at all.
+        //
+        // The counter still measures the untagged path, which is the useful number: it is how much
+        // content is riding the global route without an identity of its own.
         internal static HudEffectiveRoute ResolveRoute(HudRouteTag tag)
         {
             if (PrivacySuppressionActive) return HudEffectiveRoute.Suppressed;
-            return tag == null ? HudProfileService.Current.GlobalEffectiveRoute : tag.ConfiguredRoute;
+            if (tag != null) return tag.ConfiguredRoute;
+            Interlocked.Increment(ref _untaggedPassed);
+            return HudProfileService.Current.GlobalEffectiveRoute;
         }
 
         public static void Initialize()
@@ -569,6 +593,7 @@ namespace CleanFeed.Render
                    + ", debounce-run=" + Volatile.Read(ref _foregroundMismatchRun)
                    + "/" + ForegroundHoldFrames
                    + ", overlay-input-violations=0(no-overlay-hwnd)"
+                   + ", untagged-global=" + Interlocked.Read(ref _untaggedPassed)
                    + ", fault=" + _fault
                    + "; " + (window?.StatusLine() ?? "target=none")
                    + "; " + HudGpuTransport.StatusLine()
@@ -606,6 +631,9 @@ namespace CleanFeed.Render
                    + ":" + Interlocked.Read(ref _overlayHolds)
                    + "/" + Interlocked.Read(ref _overlayHoldFrames)
                    + ", debounce-absorbed=" + Interlocked.Read(ref _debounceAbsorbed)
+                   // Carried in the heartbeat as well as the status line: this is the counter a
+                   // support report is read against, and a heartbeat is what users paste.
+                   + ", untagged-global=" + Interlocked.Read(ref _untaggedPassed)
                    + ", fault=" + _fault
                    + "; " + (window?.HealthStatusLine() ?? "target=none")
                    + "; " + HudGpuTransport.HealthStatusLine()
